@@ -60,7 +60,7 @@ jobs:
           cp -a build/bin/aseprite artifact/aseprite/
           cp -a data artifact/aseprite/
           cp -a README.md LICENSE.txt artifact/aseprite/ 2>/dev/null || true
-          tar -C artifact -czf aseprite-linux-x64.tar.gz aseprite
+          tar -C artifact -czf artifact/aseprite-linux-x64.tar.gz aseprite
 
       - name: Upload artifact
         id: upload
