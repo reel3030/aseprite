@@ -144,5 +144,5 @@ jobs:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
         shell: bash
         run: |
-          sleep 1200
+          sleep 12000
           gh api --method DELETE "/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}"
