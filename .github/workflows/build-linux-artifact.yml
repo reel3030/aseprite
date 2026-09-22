@@ -1,0 +1,81 @@
+name: Build Aseprite (Linux)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libpixman-1-dev libfreetype6-dev libharfbuzz-dev zlib1g-dev \
+            libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev \
+            libfontconfig1-dev unzip curl
+
+      - name: Install Ninja
+        uses: aseprite/get-ninja@main
+
+      - name: Install Skia
+        shell: bash
+        run: |
+          skia_url=$(source ./laf/misc/skia-url.sh | xargs)
+          skia_file=$(basename "$skia_url")
+          curl --ssl-revoke-best-effort -L -o "$skia_file" "$skia_url"
+          unzip "$skia_file" -d skia
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SCRIPTING=ON \
+            -DENABLE_CCACHE=OFF \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR="$GITHUB_WORKSPACE/skia" \
+            -DSKIA_LIBRARY_DIR="$GITHUB_WORKSPACE/skia/out/Release-x64"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p artifact/aseprite
+          cp -a build/bin/aseprite artifact/aseprite/
+          cp -a data artifact/aseprite/
+          cp -a README.md LICENSE.txt artifact/aseprite/ 2>/dev/null || true
+          tar -C artifact -czf aseprite-linux-x64.tar.gz aseprite
+
+      - name: Upload artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-linux-x64
+          path: artifact/aseprite-linux-x64.tar.gz
+          retention-days: 1
+
+      - name: Delete artifact after 20 minutes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          echo "Artifact ID: $ARTIFACT_ID"
+          echo "Keeping the artifact for 20 minutes..."
+          sleep 1200
+          gh api --method DELETE "/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}"
+          echo "Artifact deleted."
