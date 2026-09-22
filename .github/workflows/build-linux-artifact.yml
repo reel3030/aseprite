@@ -1,4 +1,4 @@
-name: Build Aseprite (Linux)
+name: Build Aseprite (Linux + Windows)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,8 @@ permissions:
   actions: write
 
 jobs:
-  build:
+  build-linux:
+    name: Linux x64
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -74,8 +75,74 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
         run: |
-          echo "Artifact ID: $ARTIFACT_ID"
-          echo "Keeping the artifact for 20 minutes..."
           sleep 1200
           gh api --method DELETE "/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}"
-          echo "Artifact deleted."
+
+  build-windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Ninja
+        uses: aseprite/get-ninja@main
+
+      - name: Setup MSVC
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Install Skia
+        shell: bash
+        run: |
+          skia_url=$(source ./laf/misc/skia-url.sh | xargs)
+          skia_file=$(basename "$skia_url")
+          curl --ssl-revoke-best-effort -L -o "$skia_file" "$skia_url"
+          unzip "$skia_file" -d skia
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SCRIPTING=ON \
+            -DENABLE_CCACHE=OFF \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR="$GITHUB_WORKSPACE/skia" \
+            -DSKIA_LIBRARY_DIR="$GITHUB_WORKSPACE/skia/out/Release-x64"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --parallel
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p artifact/aseprite
+          cp -a build/bin/aseprite.exe artifact/aseprite/
+          cp -a data artifact/aseprite/
+          cp -a README.md LICENSE.txt artifact/aseprite/ 2>/dev/null || true
+          7z a -tzip artifact/aseprite-windows-x64.zip ./artifact/aseprite/*
+
+      - name: Upload artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-windows-x64
+          path: artifact/aseprite-windows-x64.zip
+          retention-days: 1
+
+      - name: Delete artifact after 20 minutes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        shell: bash
+        run: |
+          sleep 1200
+          gh api --method DELETE "/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}"
